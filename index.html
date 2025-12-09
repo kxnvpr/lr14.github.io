@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<title>Макс. потік (1→10) — як на зображенні</title>
+<style>
+body { font-family: sans-serif; margin: 10px; background: #f8f9fa; }
+#graph { 
+  display: block; 
+  margin: 0 auto 15px; 
+  border: 1px solid #ced4da; 
+  background: #fff; 
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08); 
+}
+.panel { 
+  width: 100%; 
+  max-width: 800px; 
+  margin: 0 auto; 
+  padding: 15px; 
+  background: #fff; 
+  border: 1px solid #dee2e6; 
+  border-radius: 6px; 
+}
+#stepList { 
+  max-height: 200px; 
+  overflow-y: auto; 
+  padding-left: 15px; 
+  margin-top: 10px; 
+}
+li { margin: 4px 0; }
+#result { 
+  margin-top: 15px; 
+  font-weight: bold; 
+  color: #28a745; 
+}
+button { 
+  width: 120px; 
+  padding: 10px; 
+  background: #20c997; 
+  color: white; 
+  border: none; 
+  border-radius: 5px; 
+  cursor: pointer; 
+  font-weight: bold; 
+  display: block; 
+  margin: 0 auto; 
+}
+button:hover { background: #1ba87e; }
+button:disabled { background: #adb5bd; cursor: not-allowed; }
+#container { text-align: center; }
+</style>
+</head>
+<body>
+<h2>Пошук шляху з максимальною пропускною здатністю (1 → 10)</h2>
+
+<canvas id="graph" width="780" height="520"></canvas>
+
+<div class="panel">
+  <button id="startBtn">Почати</button>
+  <h3>Шляхи:</h3>
+  <ul id="stepList"></ul>
+  <div id="result">Макс. пропускна здатність: —</div>
+</div>
+<script>
+const xmlText = `<graph_data>
+<graph id="1">
+<title>Граф для пошуку максимального потоку</title>
+<points>
+  <point id="1" x="100" y="300"/>
+  <point id="2" x="200" y="150"/>
+  <point id="3" x="300" y="250"/>
+  <point id="4" x="200" y="400"/>
+  <point id="5" x="400" y="350"/>
+  <point id="6" x="350" y="100"/>
+  <point id="7" x="500" y="300"/>
+  <point id="8" x="550" y="150"/>
+  <point id="9" x="350" y="450"/>
+  <point id="10" x="600" y="400"/>
+  <point id="11" x="650" y="250"/>
+</points>
+<lines>
+  <line id="1" from="1" to="2" capacity="9" flow="5"/>
+  <line id="2" from="1" to="3" capacity="9" flow="5"/>
+  <line id="3" from="1" to="4" capacity="7" flow="2"/>
+  <line id="4" from="2" to="3" capacity="9" flow="4"/>
+  <line id="5" from="2" to="6" capacity="21" flow="20"/>
+  <line id="6" from="3" to="4" capacity="9" flow="4"/>
+  <line id="7" from="3" to="5" capacity="16" flow="5"/>
+  <line id="8" from="3" to="6" capacity="8" flow="3"/>
+  <line id="9" from="3" to="7" capacity="26" flow="8"/>
+  <line id="10" from="3" to="8" capacity="14" flow="6"/>
+  <line id="11" from="4" to="5" capacity="23" flow="1"/>
+  <line id="12" from="4" to="9" capacity="4" flow="2"/>
+  <line id="13" from="5" to="7" capacity="21" flow="20"/>
+  <line id="14" from="5" to="10" capacity="9" flow="3"/>
+  <line id="15" from="6" to="8" capacity="9" flow="8"/>
+  <line id="16" from="7" to="8" capacity="15" flow="9"/>
+  <line id="17" from="7" to="11" capacity="8" flow="3"/>
+  <line id="18" from="8" to="11" capacity="8" flow="3"/>
+  <line id="19" from="9" to="10" capacity="7" flow="2"/>
+  <line id="20" from="10" to="11" capacity="21" flow="20"/>
+</lines>
+</graph>
+</graph_data>`;
+const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+const nodes = {};
+doc.querySelectorAll("point").forEach(p => {
+  const id = +p.getAttribute("id");
+  nodes[id] = { x: +p.getAttribute("x"), y: +p.getAttribute("y") };
+});
+
+const cap = {}, flow = {};
+doc.querySelectorAll("line").forEach(l => {
+  const u = +l.getAttribute("from");
+  const v = +l.getAttribute("to");
+  const c = +l.getAttribute("capacity");
+  const f = +l.getAttribute("flow");
+  (cap[u] = cap[u] || {})[v] = c;
+  (cap[v] = cap[v] || {})[u] = c;
+  (flow[u] = flow[u] || {})[v] = f;
+  (flow[v] = flow[v] || {})[u] = f;
+});
+const residual = (u, v) => cap[u][v] - flow[u][v];
+
+let paths = [], bestPath = null, bestWidth = -1, stepIdx = 0, running = false;
+
+function dfs(u, path, visited) {
+  if (u === 10) return paths.push([...path]);
+  for (let v in cap[u]) {
+    v = +v;
+    if (residual(u, v) > 0 && !visited.has(v)) {
+      visited.add(v);
+      path.push(v);
+      dfs(v, path, visited);
+      path.pop();
+      visited.delete(v);
+    }
+  }
+}
+dfs(1, [1], new Set([1]));
+const getWidth = p => Math.min(...p.slice(0, -1).map((u, i) => residual(u, p[i + 1])));
+
+const canvas = document.getElementById("graph");
+const ctx = canvas.getContext("2d");
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#6c757d";
+  ctx.lineWidth = 1.2;
+  for (let u in cap) for (let v in cap[u]) {
+    if (+u < +v) {
+      const x1 = nodes[u].x, y1 = nodes[u].y;
+      const x2 = nodes[v].x, y2 = nodes[v].y;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+
+      const midX = (x1 + x2) / 2;
+      const midY = (y1 + y2) / 2;
+      const text = `${flow[u][v]}/${cap[u][v]}`;
+      ctx.font = "13px Arial";
+      const textWidth = ctx.measureText(text).width;
+      const textHeight = 16;
+      const pad = 4;
+
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(midX - textWidth/2 - pad, midY - textHeight/2 - pad, textWidth + 2*pad, textHeight + 2*pad);
+      ctx.strokeStyle = "#ddd";
+      ctx.strokeRect(midX - textWidth/2 - pad, midY - textHeight/2 - pad, textWidth + 2*pad, textHeight + 2*pad);
+
+      ctx.fillStyle = "#495057";
+      ctx.fillText(text, midX, midY + 4);
+    }
+  }
+
+  if (running && stepIdx > 0 && stepIdx <= paths.length) {
+    const p = paths[stepIdx - 1];
+    ctx.strokeStyle = "#ffc107";
+    ctx.lineWidth = 4;
+    for (let i = 0; i < p.length - 1; i++) {
+      const u = p[i], v = p[i + 1];
+      ctx.beginPath();
+      ctx.moveTo(nodes[u].x, nodes[u].y);
+      ctx.lineTo(nodes[v].x, nodes[v].y);
+      ctx.stroke();
+    }
+  }
+  for (let id in nodes) {
+    ctx.beginPath();
+    ctx.arc(nodes[id].x, nodes[id].y, 20, 0, Math.PI * 2);
+    ctx.fillStyle = id == 1 || id == 10 ? "#28a745" : "#495057";
+    ctx.fill();
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 16px Arial";
+    ctx.fillText(id, nodes[id].x, nodes[id].y);
+  }
+}
+function runNextStep() {
+  if (stepIdx >= paths.length) {
+    running = false;
+    document.getElementById("startBtn").textContent = "Завершено";
+    document.getElementById("startBtn").disabled = true;
+    return;
+  }
+
+  const p = paths[stepIdx++];
+  const w = getWidth(p);
+  if (w > bestWidth) { bestWidth = w; bestPath = p; }
+  document.getElementById("stepList").innerHTML += `<li>${p.join("-")} → ${w}</li>`;
+  document.getElementById("result").textContent = `Макс. пропускна здатність: ${bestPath.join("-")} = ${bestWidth}`;
+  draw();
+
+  if (stepIdx < paths.length) {
+    setTimeout(runNextStep, 1200);
+  } else {
+    running = false;
+    document.getElementById("startBtn").textContent = "Завершено";
+    document.getElementById("startBtn").disabled = true;
+  }
+}
+document.getElementById("startBtn").onclick = () => {
+  if (running) return;
+  running = true;
+  stepIdx = 0;
+  bestWidth = -1;
+  bestPath = null;
+  document.getElementById("startBtn").textContent = "Виконується...";
+  document.getElementById("stepList").innerHTML = "";
+  document.getElementById("result").textContent = "Макс. пропускна здатність: —";
+  runNextStep();
+};
+draw();
+</script>
+</body>
+</html>
